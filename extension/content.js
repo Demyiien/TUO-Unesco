@@ -1,9 +1,3 @@
-// --- Load tooltip CSS dynamically ---
-const link = document.createElement("link");
-link.rel = "stylesheet";
-link.href = chrome.runtime.getURL("UI/tooltip.css");
-document.head.appendChild(link);
-
 // --- State tracking ---
 const seenText = new Set();
 const seenLinks = new Set();
@@ -34,96 +28,160 @@ function getNewContent() {
     return { text: newLines.join("\n"), links: newLinks };
 }
 
-// --- Tooltip creation ---
-function createTooltip(mark, phrase, aiVerdict = null, credibility = null, sources = []) {
-    const old = document.querySelector(".suspicious-tooltip");
-    if (old) old.remove();
+// --- Tooltip creation (new UI version) ---
+function createTooltip(mark, highlightedText, aiVerdict = null, credibility = null, sources = []) {
+    let tooltip = document.querySelector(".suspicious-tooltip");
+
+    // Reuse tooltip if same phrase
+    if (tooltip && tooltip.dataset.phrase === highlightedText) {
+        const rect = mark.getBoundingClientRect();
+        let top = rect.bottom + window.scrollY + 8;
+        let left = Math.min(rect.left + window.scrollX, window.innerWidth - tooltip.offsetWidth - 10);
+
+        if (top + tooltip.offsetHeight > window.scrollY + window.innerHeight) {
+            top = rect.top + window.scrollY - tooltip.offsetHeight - 8;
+        }
+
+        tooltip.style.top = `${top}px`;
+        tooltip.style.left = `${left}px`;
+        return;
+    }
+
+    // remove old one if different phrase
+    if (tooltip) tooltip.remove();
 
     if (!sources || sources.length === 0) sources = ["https://example.com"];
 
-    const tooltip = document.createElement("div");
+    tooltip = document.createElement("div");
     tooltip.className = "suspicious-tooltip";
+    tooltip.dataset.phrase = highlightedText;
     tooltip.style.cssText = `
-        background:#fffdfa;
-        border:1px solid #e0c3fc;
-        border-radius:8px;
-        padding:8px 12px;
-        box-shadow:0 4px 12px rgba(0,0,0,0.15);
-        font-size:0.9em;
-        color:#333;
-        max-width:300px;
-        line-height:1.3em;
-        z-index:10000;
         position:absolute;
+        z-index:10000;
+        width:350px;
+        max-width:95%;
+        background:#fff;
+        border-radius:12px;
+        box-shadow:0 6px 20px rgba(0,0,0,0.15);
+        font-family:'Inter',sans-serif;
+        color:#333;
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        opacity:0;
+        transform:scale(0.9);
+        transition:opacity 0.3s ease, transform 0.25s ease;
     `;
 
     tooltip.innerHTML = `
-        <div style="font-weight:bold; margin-bottom:4px;">${phrase}</div>
-        <div style="margin-bottom:4px;">References:</div>
-        <ul style="margin:0 0 6px 16px; padding:0; list-style:disc;">
-            ${sources.map(url => `<li><a href="${url}" target="_blank" style="color:#5e17eb;">${url}</a></li>`).join('')}
-        </ul>
-        <div style="display:flex; gap:6px; justify-content:flex-start; margin-bottom:2px;">
-            <button class="tooltip-true" style="flex:1; padding:4px 6px; border-radius:4px; border:1px solid #5e17eb; background:#f8f8f8; cursor:pointer;">✅ True</button>
-            <button class="tooltip-false" style="flex:1; padding:4px 6px; border-radius:4px; border:1px solid #5e17eb; background:#f8f8f8; cursor:pointer;">❌ False</button>
+        <div style="
+            background:#FF9D23;
+            height:48px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-family:'Inter',sans-serif;
+            font-weight:bold;
+            color:white;
+            font-size:1em;
+            border-radius:12px 12px 0 0;
+        ">
+            Suspicious Text Detected!
         </div>
-        <div class="tooltip-result" style="margin-top:4px; font-style:italic; color:#555;"></div>
+
+        <div style="padding:12px 16px; font-size:0.9em; line-height:1.4em; flex:1;">
+            <div style="margin-bottom:8px; font-weight:bold;">Highlighted Text:</div>
+            <div style="margin-bottom:12px; color:#d6336c; word-wrap:break-word;">${highlightedText}</div>
+            <div style="margin-bottom:6px; font-weight:bold;">Related Sources:</div>
+            <ol class="tooltip-sources" style="margin:0 0 12px 16px; padding:0; list-style:decimal;">
+                ${sources.map(url => {
+                    const shortUrl = url.length > 35 ? url.slice(0, 32) + "..." : url;
+                    return `<li><a href="${url}" target="_blank" style="color:#1a73e8; text-decoration:underline; word-break:break-all;">${shortUrl}</a></li>`;
+                }).join('')}
+            </ol>
+        </div>
+
+        <div class="tooltip-buttons" style="
+            padding:12px 16px; 
+            border-top:1px solid #eee; 
+            display:flex; 
+            gap:12px; 
+            justify-content:center; 
+        ">
+            <button class="tooltip-true" style="
+                flex:1; padding: 10px 0; border:none; border-radius:8px; background:#21BF73; color:white; font-weight:bold; cursor:pointer;
+                transition:all 0.2s; font-size:0.95em;
+            ">TRUE</button>
+            <button class="tooltip-false" style="
+                flex:1; padding:10px 0; border:none; border-radius:8px; background:#E43636; color:white; font-weight:bold; cursor:pointer;
+                transition:all 0.2s; font-size:0.95em;
+            ">FALSE</button>
+        </div>
+
+        <div class="tooltip-result" style="padding:10px 16px; font-style:italic; color:#555; min-height:24px;"></div>
     `;
 
     document.body.appendChild(tooltip);
 
+    // Position near highlighted text
     const rect = mark.getBoundingClientRect();
-    tooltip.style.top = `${rect.top + window.scrollY - tooltip.offsetHeight - 8}px`;
-    tooltip.style.left = `${rect.left + window.scrollX}px`;
+    let top = rect.bottom + window.scrollY + 8;
+    let left = Math.min(rect.left + window.scrollX, window.innerWidth - tooltip.offsetWidth - 10);
 
-    // Animation
-    tooltip.style.opacity = 0;
-    tooltip.style.transform = "scale(0.85) rotate(-2deg)";
-    setTimeout(() => {
-        tooltip.style.transition = "all 0.25s ease";
+    if (top + tooltip.offsetHeight > window.scrollY + window.innerHeight) {
+        top = rect.top + window.scrollY - tooltip.offsetHeight - 8;
+    }
+
+    tooltip.style.top = `${top}px`;
+    tooltip.style.left = `${left}px`;
+
+    // Fade in
+    requestAnimationFrame(() => {
         tooltip.style.opacity = 1;
-        tooltip.style.transform = "scale(1) rotate(0deg)";
-    }, 50);
+        tooltip.style.transform = "scale(1)";
+    });
 
+    // Buttons
     const resultDiv = tooltip.querySelector(".tooltip-result");
-
-    // --- Button hover shadow effect ---
     const trueBtn = tooltip.querySelector(".tooltip-true");
     const falseBtn = tooltip.querySelector(".tooltip-false");
 
-    [trueBtn, falseBtn].forEach(btn => {
-        btn.addEventListener("mouseenter", () => btn.style.boxShadow = "0 0 6px rgba(94,23,235,0.7)");
-        btn.addEventListener("mouseleave", () => btn.style.boxShadow = "none");
-    });
-
     trueBtn.addEventListener("click", () => {
-        resultDiv.innerHTML = `
-            Your guess: ✅ True<br>
-            AI Verdict: ${aiVerdict ? "✅ True" : "❌ False"} (${credibility}/10)<br>
-        `;
+        resultDiv.innerHTML = `Your Verdict: ✅ TRUE<br>AI Verdict: ${aiVerdict ? "✅ True" : "❌ False"} (${credibility}/10)`;
         trueBtn.disabled = true;
         falseBtn.disabled = true;
-        tooltip.style.transform = "scale(1.05)";
-        setTimeout(() => tooltip.style.transform = "scale(1)", 300);
+        trueBtn.style.opacity = 0.7;
+        falseBtn.style.opacity = 0.7;
     });
 
     falseBtn.addEventListener("click", () => {
-        resultDiv.innerHTML = `
-            Your guess: ❌ False<br>
-            AI Verdict: ${aiVerdict ? "✅ True" : "❌ False"} (${credibility}/10)<br>
-        `;
+        resultDiv.innerHTML = `Your Verdict: ❌ FALSE<br>AI Verdict: ${aiVerdict ? "✅ True" : "❌ False"} (${credibility}/10)`;
         trueBtn.disabled = true;
         falseBtn.disabled = true;
-        tooltip.style.transform = "scale(1.05)";
-        setTimeout(() => tooltip.style.transform = "scale(1)", 300);
+        trueBtn.style.opacity = 0.7;
+        falseBtn.style.opacity = 0.7;
     });
 
-    // Hover persistence
+    // Auto-hide with fade-out
     let hideTimeout;
-    mark.addEventListener("mouseleave", () => hideTimeout = setTimeout(() => tooltip.remove(), 400));
+
+    function scheduleHide() {
+        hideTimeout = setTimeout(() => {
+            tooltip.style.opacity = 0;
+            tooltip.style.transform = "scale(0.95)";
+            setTimeout(() => {
+                if (tooltip && tooltip.parentNode) tooltip.remove();
+            }, 300);
+        }, 100);
+    }
+
+    mark.addEventListener("mouseleave", scheduleHide);
+    tooltip.addEventListener("mouseleave", scheduleHide);
+
+    mark.addEventListener("mouseenter", () => clearTimeout(hideTimeout));
     tooltip.addEventListener("mouseenter", () => clearTimeout(hideTimeout));
-    tooltip.addEventListener("mouseleave", () => tooltip.remove());
 }
+
 
 // --- Highlight suspicious phrases ---
 function highlightSuspiciousText(suspiciousPhrases) {
@@ -131,7 +189,14 @@ function highlightSuspiciousText(suspiciousPhrases) {
 
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     const textNodes = [];
-    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+
+        // Skip if this text is inside the tooltip
+        if (node.parentNode.closest(".suspicious-tooltip")) continue;
+
+        textNodes.push(node);
+    }
 
     for (const node of textNodes) {
         const parent = node.parentNode;

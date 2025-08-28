@@ -3,11 +3,11 @@
     "name": "TUO",
     "version": "1.0",
     "permissions": ["scripting", "activeTab"],
-    "host_permissions": ["<all_urls>", "http://localhost:3000/"],
+    "host_permissions": ["<all_urls>", "http://localhost:3000/", "file://*/*", "file:///*"],
     "background": { "service_worker": "background.js" },
     "content_scripts": [
       {
-        "matches": ["<all_urls>"],
+        "matches": ["<all_urls>", "file:///*"],
         "js": ["content.js"],
         "run_at": "document_idle"
       }
